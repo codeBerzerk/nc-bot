@@ -1,0 +1,45 @@
+name: Deploy Bot to Server
+
+on:
+  push:
+    branches:
+      - master
+
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_HOST }}
+
+      - name: Copy files to server
+        run: |
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no" --exclude '.git' --exclude '.github' ./ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USERNAME }}/bot/
+
+      - name: Install dependencies and restart bot
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            cd ~/bot/
+            # Створюємо та активуємо віртуальне середовище
+            python3 -m venv venv
+            source venv/bin/activate
+            # Встановлюємо залежності
+            pip install -r requirements.txt
+            # Експортуємо змінні середовища (якщо не використовуєте systemd)
+            export API_TOKEN='${{ secrets.API_TOKEN }}'
+            export MONGO_URI='${{ secrets.MONGO_URI }}'
+            export ADMIN_USER_ID='${{ secrets.ADMIN_USER_ID }}'
+            # Перезапускаємо бота
+            sudo systemctl restart bot.service
+          ENDSSH
