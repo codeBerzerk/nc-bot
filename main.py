@@ -38,7 +38,7 @@ dp = Dispatcher()
 # Підключення до MongoDB
 try:
     client = MongoClient(MONGO_URI)
-    db = client['telegram_bot']  # Змініть назву бази даних, якщо потрібно
+    db = client['nc_helper_bot']  # Змініть назву бази даних, якщо потрібно
     chats_collection = db['chats']
     tickets_collection = db['tickets']
     # Тестове підключення
