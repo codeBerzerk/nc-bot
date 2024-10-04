@@ -66,6 +66,7 @@ start_buttons = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+
 # Функція для збереження чату в MongoDB
 def save_chat(chat_data):
     try:
@@ -79,7 +80,8 @@ def save_chat(chat_data):
     except Exception as e:
         logging.error(f"Помилка при збереженні чату в базу даних: {e}")
 
-# Створення інлайн-кнопок для закриття тікетів (не використовується в групах)
+
+# Створення інлайн-кнопок для закриття тікетів
 def get_close_ticket_keyboard(ticket_id: str):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -89,6 +91,7 @@ def get_close_ticket_keyboard(ticket_id: str):
         ]
     )
     return keyboard
+
 
 # Створення інлайн-кнопок для призначення групи чату
 def get_assign_group_keyboard(chat_id: int):
@@ -102,6 +105,7 @@ def get_assign_group_keyboard(chat_id: int):
     )
     return keyboard
 
+
 # Обробник події, коли статус бота змінюється в чаті
 @dp.my_chat_member()
 async def on_my_chat_member(update: types.ChatMemberUpdated):
@@ -114,7 +118,8 @@ async def on_my_chat_member(update: types.ChatMemberUpdated):
         new_status = update.new_chat_member.status
 
         # Реагуємо лише якщо бот був доданий до чату
-        if old_status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED] and new_status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR]:
+        if old_status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED] and new_status in [ChatMemberStatus.MEMBER,
+                                                                                             ChatMemberStatus.ADMINISTRATOR]:
             chat = update.chat
             chat_data = {
                 "chat_id": chat.id,
@@ -150,6 +155,7 @@ async def on_my_chat_member(update: types.ChatMemberUpdated):
     except Exception as e:
         logging.error(f"Помилка в обробнику on_my_chat_member: {e}")
 
+
 # Обробник для призначення групи чату
 @dp.callback_query(F.data.startswith('assign_'))
 async def assign_chat_group(callback_query: types.CallbackQuery):
@@ -168,6 +174,7 @@ async def assign_chat_group(callback_query: types.CallbackQuery):
         f"✅ Чат призначено до групи {group_name}."
     )
 
+
 # Команда /start та /help (тільки в приватному чаті)
 @dp.message(Command(commands=['start', 'help']), F.chat.type == ChatType.PRIVATE)
 async def send_welcome(message: types.Message):
@@ -183,11 +190,12 @@ async def send_welcome(message: types.Message):
         "ℹ️ <b>Як працюють тікети:</b>\n"
         "- При відправці повідомлення створюється тікет.\n"
         "- Тікет відображається у всіх чатах, куди він був надісланий.\n"
-        "- Тікет можна закрити лише через приватний чат з ботом.\n"
-        "- Після закриття тікету, бот надсилає повідомлення у всі відповідні групи, що тікет закрито.\n\n"
+        "- Кожен чат може закрити тікет незалежно.\n"
+        "- Коли тікет закрито в усіх чатах, він переміщується в історію.\n\n"
         "🔘 Використовуйте кнопки нижче для зручності."
     )
     await message.reply(welcome_text, reply_markup=start_buttons, parse_mode='HTML')
+
 
 # Команда /id для отримання ID чату (тільки в приватному чаті)
 @dp.message(Command(commands=['id']), F.chat.type == ChatType.PRIVATE)
@@ -213,11 +221,14 @@ async def send_chat_id(message: types.Message):
         )
     except Exception as e:
         logging.error(f"Помилка при відправці особистого повідомлення: {e}")
-        await message.reply("❌ Не вдалося відправити інформацію в особисті повідомлення. Переконайтесь, що ви дозволили боту надсилати вам повідомлення.")
+        await message.reply(
+            "❌ Не вдалося відправити інформацію в особисті повідомлення. Переконайтесь, що ви дозволили боту надсилати вам повідомлення.")
+
 
 # Функція для створення унікального ID тікета
 def generate_ticket_id():
     return str(uuid.uuid4())
+
 
 # Команда для надсилання повідомлень у DEV чати (тільки в приватному чаті)
 @dp.message(Command(commands=['dev']), F.chat.type == ChatType.PRIVATE)
@@ -231,6 +242,7 @@ async def send_dev_message(message: types.Message):
     ticket_data = {
         "ticket_id": ticket_id,
         "global_status": "open",
+        "status": {},
         "text": text,
         "message_ids": []
     }
@@ -241,17 +253,19 @@ async def send_dev_message(message: types.Message):
         try:
             sent_message = await bot.send_message(
                 chat["chat_id"], f"🛠️ <b>{text}</b>",
-                parse_mode='HTML', reply_markup=None  # Без кнопок закриття
+                parse_mode='HTML', reply_markup=get_close_ticket_keyboard(ticket_id)
             )
             ticket_data["message_ids"].append({
                 "chat_id": chat["chat_id"],
                 "message_id": sent_message.message_id
             })
+            ticket_data["status"][str(chat["chat_id"])] = "open"
         except Exception as e:
             logging.error(f"Не вдалося надіслати повідомлення в чат {chat['chat_id']}: {e}")
 
     tickets_collection.insert_one(ticket_data)
     await message.reply(f"✅ Повідомлення відправлено у DEV чати: {text}")
+
 
 # Команда для надсилання повідомлень у PROD чати (тільки в приватному чаті)
 @dp.message(Command(commands=['prod']), F.chat.type == ChatType.PRIVATE)
@@ -265,6 +279,7 @@ async def send_prod_message(message: types.Message):
     ticket_data = {
         "ticket_id": ticket_id,
         "global_status": "open",
+        "status": {},
         "text": text,
         "message_ids": []
     }
@@ -275,17 +290,19 @@ async def send_prod_message(message: types.Message):
         try:
             sent_message = await bot.send_message(
                 chat["chat_id"], f"🚀 <b>{text}</b>",
-                parse_mode='HTML', reply_markup=None  # Без кнопок закриття
+                parse_mode='HTML', reply_markup=get_close_ticket_keyboard(ticket_id)
             )
             ticket_data["message_ids"].append({
                 "chat_id": chat["chat_id"],
                 "message_id": sent_message.message_id
             })
+            ticket_data["status"][str(chat["chat_id"])] = "open"
         except Exception as e:
             logging.error(f"Не вдалося надіслати повідомлення в чат {chat['chat_id']}: {e}")
 
     tickets_collection.insert_one(ticket_data)
     await message.reply(f"✅ Повідомлення відправлено у PROD чати: {text}")
+
 
 # Команда для надсилання повідомлень у всі чати (тільки в приватному чаті)
 @dp.message(Command(commands=['all']), F.chat.type == ChatType.PRIVATE)
@@ -299,6 +316,7 @@ async def send_all_message(message: types.Message):
     ticket_data = {
         "ticket_id": ticket_id,
         "global_status": "open",
+        "status": {},
         "text": text,
         "message_ids": []
     }
@@ -309,17 +327,41 @@ async def send_all_message(message: types.Message):
         try:
             sent_message = await bot.send_message(
                 chat["chat_id"], f"📢 <b>{text}</b>",
-                parse_mode='HTML', reply_markup=None  # Без кнопок закриття
+                parse_mode='HTML', reply_markup=get_close_ticket_keyboard(ticket_id)
             )
             ticket_data["message_ids"].append({
                 "chat_id": chat["chat_id"],
                 "message_id": sent_message.message_id
             })
+            ticket_data["status"][str(chat["chat_id"])] = "open"
         except Exception as e:
             logging.error(f"Не вдалося надіслати повідомлення в чат {chat['chat_id']}: {e}")
 
     tickets_collection.insert_one(ticket_data)
     await message.reply(f"✅ Повідомлення відправлено у всі чати: {text}")
+
+
+# Команда для показу відкритих тікетів (тільки в приватному чаті)
+@dp.message(Command(commands=['tickets']), F.chat.type == ChatType.PRIVATE)
+async def show_tickets(message: types.Message):
+    open_tickets = list(tickets_collection.find({"global_status": "open"}))
+    if not open_tickets:
+        await message.reply("ℹ️ Немає відкритих тікетів.")
+        return
+
+    response = "📝 <b>Відкриті тікети:</b>\n"
+    for ticket in open_tickets:
+        # Додаємо кнопку для закриття тікету
+        close_button = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Закрити тікет ✅", callback_data=f"close_{ticket['ticket_id']}")
+                ]
+            ]
+        )
+        response += f"• <b>{ticket['text']}</b>\n"
+        await message.reply(response, parse_mode='HTML', reply_markup=close_button)
+
 
 # Команда для показу історії закритих тікетів з текстом (тільки в приватному чаті)
 @dp.message(Command(commands=['history']), F.chat.type == ChatType.PRIVATE)
@@ -338,43 +380,54 @@ async def show_history(message: types.Message):
 
     await message.reply(response, parse_mode='HTML')
 
+
 # Обробка запиту на закриття тікета
 @dp.callback_query(F.data.startswith('close_'))
 async def close_ticket(callback_query: types.CallbackQuery):
     ticket_id = callback_query.data.split('_')[1]
-    chat_type = callback_query.message.chat.type
-
-    # Перевіряємо, що команда виконується з приватного чату
-    if chat_type != ChatType.PRIVATE:
-        await callback_query.answer("❌ Цю дію можна виконати лише через приватний чат з ботом.", show_alert=True)
-        return
-
+    chat_id = str(callback_query.message.chat.id)
     ticket = tickets_collection.find_one({"ticket_id": ticket_id})
 
     if ticket:
-        if ticket["global_status"] != "closed":
-            # Оновлюємо глобальний статус тікету
+        # Перевіряємо статус тікета в конкретному чаті
+        if ticket["status"].get(chat_id) != "closed":
+            # Оновлюємо статус тікета для цього чату
+            ticket["status"][chat_id] = "closed"
+            # Перевіряємо, чи тікет закрито в усіх чатах
+            if all(status == "closed" for status in ticket["status"].values()):
+                ticket["global_status"] = "closed"
+                # Відправляємо повідомлення в усі чати про закриття тікета
+                for msg_id in ticket["message_ids"]:
+                    try:
+                        await bot.send_message(
+                            msg_id["chat_id"],
+                            f"✅ Тікет <b>{ticket['text']}</b> було закрито.",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logging.error(f"Не вдалося відправити повідомлення в чат {msg_id['chat_id']}: {e}")
             tickets_collection.update_one(
                 {"ticket_id": ticket_id},
-                {"$set": {"global_status": "closed"}}
+                {"$set": {"status": ticket["status"], "global_status": ticket.get("global_status", "open")}}
             )
-            await callback_query.answer("✅ Тікет закрито.")
-
-            # Надсилаємо повідомлення про закриття тікету в усі групи
-            for msg in ticket["message_ids"]:
-                try:
-                    await bot.send_message(
-                        msg["chat_id"],
-                        f"🔒 Тікет <b>{ticket['text']}</b> було закрито.",
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logging.error(f"Не вдалося відправити повідомлення в чат {msg['chat_id']}: {e}")
-
+            await callback_query.answer("Тікет закрито.")
+            # Оновлюємо повідомлення в чаті
+            new_text = callback_query.message.text + "\n\n✅ <b>Тікет закрито.</b>"
+            new_text = new_text.replace("🛠️", "✅").replace("🚀", "✅").replace("📢", "✅")
+            try:
+                await bot.edit_message_text(
+                    text=new_text,
+                    chat_id=callback_query.message.chat.id,
+                    message_id=callback_query.message.message_id,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logging.error(f"Не вдалося оновити повідомлення в чаті {callback_query.message.chat.id}: {e}")
         else:
-            await callback_query.answer("❌ Тікет вже закрито.", show_alert=True)
+            await callback_query.answer("❌ Тікет вже закрито.")
     else:
-        await callback_query.answer("❌ Тікет не знайдено.", show_alert=True)
+        await callback_query.answer("❌ Тікет не знайдено.")
+
 
 # Обробка невідомих команд у приватному чаті
 @dp.message(F.chat.type == ChatType.PRIVATE)
@@ -384,9 +437,24 @@ async def handle_unknown(message: types.Message):
     else:
         await message.reply("Ви надіслали повідомлення, але я не можу його обробити.")
 
+
 if __name__ == '__main__':
     async def main():
+        # Реєстрація обробників
+        dp.message.register(send_welcome, Command(commands=['start', 'help']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(show_tickets, Command(commands=['tickets']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(send_dev_message, Command(commands=['dev']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(send_prod_message, Command(commands=['prod']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(send_all_message, Command(commands=['all']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(show_history, Command(commands=['history']), F.chat.type == ChatType.PRIVATE)
+        dp.message.register(send_chat_id, Command(commands=['id']), F.chat.type == ChatType.PRIVATE)
+        dp.callback_query.register(assign_chat_group, F.data.startswith('assign_'))
+        dp.callback_query.register(close_ticket, F.data.startswith('close_'))
+        dp.message.register(handle_unknown, F.chat.type == ChatType.PRIVATE)
+        dp.my_chat_member.register(on_my_chat_member)
+
         # Запуск бота
         await dp.start_polling(bot)
+
 
     asyncio.run(main())
